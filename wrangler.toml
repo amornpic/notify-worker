@@ -1,0 +1,9 @@
+name               = "notify-worker"
+main               = "src/index.ts"
+compatibility_date = "2026-04-09"
+
+# ─── Non-secret environment variables ────────────────────────────────────────
+# Secrets (GCHAT_WEBHOOK_URL, API_TOKEN) must be added via:
+#   wrangler secret put GCHAT_WEBHOOK_URL
+#   wrangler secret put API_TOKEN
+# Never commit secrets here.
