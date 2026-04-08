@@ -26,12 +26,11 @@ wrangler secret put GCHAT_WEBHOOK_URL   # Incoming Webhook URL จาก Google 
 wrangler secret put API_TOKEN           # Bearer token ป้องกัน endpoint (ตั้งเองได้เลย)
 ```
 
-### 2. แก้ `wrangler.toml`
+### 2. เพิ่ม `.env`
 
-```toml
-[vars]
-PR_NUMBER = "4008"
-REPO_NAME = "true-ecommerce-store-web"
+```env
+GCHAT_WEBHOOK_URL=""
+API_TOKEN=""
 ```
 
 ### 3. รันในเครื่อง
@@ -117,23 +116,3 @@ cc. <users/999999999>
 ## หา Google Chat userId
 
 เปิด Google Chat ใน browser → คลิกชื่อคน → ดู URL จะมี `/users/<numeric-id>`
-
----
-
-## cURL
-
-```bash
-curl -X POST https://gchat-notifier.<subdomain>.workers.dev/notify \
-  -H "Authorization: Bearer <API_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prLink": "https://github.com/org/repo/pull/4008",
-    "ticketLink": "https://jira.example.com/browse/EC-4008",
-    "reviewers": [
-      { "name": "dev1", "userId": "users/111111111" },
-      { "name": "dev2", "userId": "users/222222222" },
-      { "name": "dev3" }
-    ],
-    "lead": { "name": "devlead", "userId": "users/999999999" }
-  }'
-```
