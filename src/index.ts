@@ -28,6 +28,8 @@ interface Mention {
 interface NotifyBody {
   prLink: string        // required — full URL to the PR
   ticketLink: string    // required — full URL to the ticket
+  spaceId: string       // required — spaceId
+  sender: Mention       // required — by. @dev
   reviewers: Mention[]  // required — at least one reviewer (@dev1 @dev2 @dev3)
   lead: Mention         // required — cc. @devlead
 }
@@ -62,8 +64,14 @@ function validateBody(body: unknown): ValidationResult {
   if (typeof b['ticketLink'] !== 'string' || !b['ticketLink'])
     return { ok: false, error: '`ticketLink` is required (string)' }
 
+  if (typeof b['spaceId'] !== 'string' || !b['spaceId'])
+    return { ok: false, error: '`spaceId` is required (string)' }
+
   if (!Array.isArray(b['reviewers']) || b['reviewers'].length === 0)
     return { ok: false, error: '`reviewers` is required (non-empty array)' }
+
+  if (!isValidMention(b['sender']))
+    return { ok: false, error: '`sender` is required: { name: string, userId?: string }' }
 
   if (!b['reviewers'].every(isValidMention))
     return { ok: false, error: '`reviewers` items must be { name: string, userId?: string }' }
@@ -81,13 +89,19 @@ function formatMention(m: Mention): string {
   return m.userId ? `<${m.userId}>` : `@${m.name}`
 }
 
-function buildMessage(body: NotifyBody, env: Env): GoogleChatMessage {
+function buildMessage(body: NotifyBody, env: Env): [string, GoogleChatMessage] {
   const textSplit = body.prLink.split('/')
   const prNumber     = textSplit[8]
   const repoName     = textSplit[6]
+  const senderLine   = `By. ${formatMention(body.sender)}`
   const reviewerLine = body.reviewers.map(formatMention).join(' ')
   const leadLine     = `cc. ${formatMention(body.lead)}`
   const ticket = body.ticketLink.startsWith('https') ? body.ticketLink : `https://trueomx.atlassian.net/browse/${body.ticketLink}`
+  const webhookUrl = env.GCHAT_WEBHOOK_URL.split(',').find((url) => url.includes(body.spaceId))
+
+  if (!webhookUrl) {
+    throw new Error(`Webhook URL not found for spaceId: ${body.spaceId}`)
+  }
 
   const text = [
     `Please review code`,
@@ -95,12 +109,13 @@ function buildMessage(body: NotifyBody, env: Env): GoogleChatMessage {
     `Repositories: ${repoName}`,
     `Link: ${body.prLink}`,
     `Ticket: ${ticket}`,
+    senderLine,
     ``,
     reviewerLine,
     leadLine,
   ].join('\n')
 
-  return { text }
+  return [webhookUrl, { text }]
 }
 
 // ─── Google Chat sender ───────────────────────────────────────────────────────
@@ -123,14 +138,14 @@ app.use('*', cors())
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
 // Bearer token guard (skipped if API_TOKEN is not configured)
-app.use('/notify', async (c, next) => {
+app.use('/notify/review-pr', async (c, next) => {
   const token = c.env.API_TOKEN
   if (token) return bearerAuth({ token })(c, next)
   return next()
 })
 
 // POST /notify
-app.post('/notify', async (c) => {
+app.post('/notify/review-pr', async (c) => {
   // 1. Parse JSON
   let raw: unknown
   try {
@@ -149,10 +164,10 @@ app.post('/notify', async (c) => {
         schema: {
           prLink:     'string (required)',
           ticketLink: 'string (required)',
+          spaceId:    'string (required)',
+          sender:     'Mention (required)',
           reviewers:  'Mention[] (required, min 1) — Mention: { name: string, userId?: string }',
           lead:       'Mention (required)',
-          prNumber:   'string (optional — overrides wrangler.toml)',
-          repoName:   'string (optional — overrides wrangler.toml)',
         },
       },
       400,
@@ -160,12 +175,12 @@ app.post('/notify', async (c) => {
   }
 
   // 3. Build message
-  const message = buildMessage(result.data, c.env)
 
   // 4. Send to Google Chat
   let gchatRes: Response
   try {
-    gchatRes = await sendToGoogleChat(c.env.GCHAT_WEBHOOK_URL, message)
+    const [webhookUrl, message] = buildMessage(result.data, c.env)
+    gchatRes = await sendToGoogleChat(webhookUrl, message)
   } catch (err) {
     return c.json({ success: false, error: `Network error: ${String(err)}` }, 502)
   }
@@ -178,7 +193,7 @@ app.post('/notify', async (c) => {
     )
   }
 
-  return c.json({ success: true, message })
+  return c.json({ success: true })
 })
 
 // 404 fallback
