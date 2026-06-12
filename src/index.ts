@@ -32,6 +32,7 @@ interface NotifyBody {
   sender: Mention       // required — by. @dev
   reviewers: Mention[]  // required — at least one reviewer (@dev1 @dev2 @dev3)
   lead: Mention         // required — cc. @devlead
+  description?: string  // optional — PR description / context
 }
 
 interface GoogleChatMessage {
@@ -79,6 +80,9 @@ function validateBody(body: unknown): ValidationResult {
   if (!isValidMention(b['lead']))
     return { ok: false, error: '`lead` is required: { name: string, userId?: string }' }
 
+  if ('description' in b && typeof b['description'] !== 'string')
+    return { ok: false, error: '`description` must be a string if provided' }
+
   return { ok: true, data: body as NotifyBody }
 }
 
@@ -93,9 +97,9 @@ function buildMessage(body: NotifyBody, env: Env): [string, GoogleChatMessage] {
   const textSplit = body.prLink.split('/')
   const prNumber     = textSplit[8]
   const repoName     = textSplit[6]
-  const senderLine   = `By. ${formatMention(body.sender)}`
+  const senderLine   = `By: ${formatMention(body.sender)}`
   const reviewerLine = body.reviewers.map(formatMention).join(' ')
-  const leadLine     = `cc. ${formatMention(body.lead)}`
+  const leadLine     = `cc: ${formatMention(body.lead)}`
   const ticket = body.ticketLink.startsWith('https') ? body.ticketLink : `https://trueomx.atlassian.net/browse/${body.ticketLink}`
   const webhookUrl = env.GCHAT_WEBHOOK_URL.split(',').find((url) => url.includes(body.spaceId))
 
@@ -103,17 +107,22 @@ function buildMessage(body: NotifyBody, env: Env): [string, GoogleChatMessage] {
     throw new Error(`Webhook URL not found for spaceId: ${body.spaceId}`)
   }
 
-  const text = [
+  const lines = [
     `Please review code`,
     `Pull-requests : ${prNumber}`,
     `Repositories: ${repoName}`,
     `Link: ${body.prLink}`,
     `Ticket: ${ticket}`,
     senderLine,
-    ``,
-    reviewerLine,
-    leadLine,
-  ].join('\n')
+  ]
+
+  if (body.description) {
+    lines.push(``, `Description: ${body.description}`, ``)
+  }
+
+  lines.push(``, reviewerLine, leadLine)
+
+  const text = lines.join('\n')
 
   return [webhookUrl, { text }]
 }
@@ -162,12 +171,13 @@ app.post('/notify/review-pr', async (c) => {
         success: false,
         error: result.error,
         schema: {
-          prLink:     'string (required)',
-          ticketLink: 'string (required)',
-          spaceId:    'string (required)',
-          sender:     'Mention (required)',
-          reviewers:  'Mention[] (required, min 1) — Mention: { name: string, userId?: string }',
-          lead:       'Mention (required)',
+          prLink:      'string (required)',
+          ticketLink:  'string (required)',
+          spaceId:     'string (required)',
+          sender:      'Mention (required)',
+          reviewers:   'Mention[] (required, min 1) — Mention: { name: string, userId?: string }',
+          lead:        'Mention (required)',
+          description: 'string (optional)',
         },
       },
       400,
