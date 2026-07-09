@@ -26,9 +26,9 @@ interface Mention {
 }
 
 interface NotifyBody {
-  prLink: string        // required — full URL to the PR
-  ticketLink: string    // required — full URL to the ticket
-  spaceId: string       // required — spaceId
+  prLink: string                    // required — full URL to the PR
+  ticketLink: string | string[]     // required — one ticket, or many (full URL or bare key e.g. "EC-999")
+  spaceId: string                   // required — spaceId
   sender: Mention       // required — by. @dev
   reviewers: Mention[]  // required — at least one reviewer (@dev1 @dev2 @dev3)
   lead: Mention         // required — cc. @devlead
@@ -62,8 +62,14 @@ function validateBody(body: unknown): ValidationResult {
   if (typeof b['prLink'] !== 'string' || !b['prLink'])
     return { ok: false, error: '`prLink` is required (string)' }
 
-  if (typeof b['ticketLink'] !== 'string' || !b['ticketLink'])
-    return { ok: false, error: '`ticketLink` is required (string)' }
+  const ticketLink = b['ticketLink']
+  const isTicketInput = (t: unknown): t is string | string[] =>
+    typeof t === 'string' || (Array.isArray(t) && t.every((x) => typeof x === 'string'))
+  if (!isTicketInput(ticketLink) || parseTickets(ticketLink).length === 0)
+    return {
+      ok: false,
+      error: '`ticketLink` is required (string, comma-separated string, or string[]) with at least one ticket',
+    }
 
   if (typeof b['spaceId'] !== 'string' || !b['spaceId'])
     return { ok: false, error: '`spaceId` is required (string)' }
@@ -88,6 +94,18 @@ function validateBody(body: unknown): ValidationResult {
 
 // ─── Message builder ──────────────────────────────────────────────────────────
 
+/** Flattens "EC-1,EC-2" and ["EC-1", "EC-2,EC-3"] alike into ["EC-1", "EC-2", "EC-3"]. */
+function parseTickets(input: string | string[]): string[] {
+  return (Array.isArray(input) ? input : [input])
+    .flatMap((t) => t.split(','))
+    .map((t) => t.trim())
+    .filter((t) => t !== '')
+}
+
+function toTicketUrl(ticket: string): string {
+  return ticket.startsWith('https') ? ticket : `https://trueomx.atlassian.net/browse/${ticket}`
+}
+
 function formatMention(m: Mention): string {
   // userId present → Google Chat resolves this to a real notification ping
   return m.userId ? `<${m.userId}>` : `@${m.name}`
@@ -100,19 +118,24 @@ function buildMessage(body: NotifyBody, env: Env): [string, GoogleChatMessage] {
   const senderLine   = `By: ${formatMention(body.sender)}`
   const reviewerLine = body.reviewers.map(formatMention).join(' ')
   const leadLine     = `cc: ${formatMention(body.lead)}`
-  const ticket = body.ticketLink.startsWith('https') ? body.ticketLink : `https://trueomx.atlassian.net/browse/${body.ticketLink}`
+  const tickets = parseTickets(body.ticketLink).map(toTicketUrl)
   const webhookUrl = env.GCHAT_WEBHOOK_URL.split(',').find((url) => url.includes(body.spaceId))
 
   if (!webhookUrl) {
     throw new Error(`Webhook URL not found for spaceId: ${body.spaceId}`)
   }
 
+  const ticketLines =
+    tickets.length === 1
+      ? [`Ticket: ${tickets[0]}`]
+      : [`Tickets:`, ...tickets.map((t) => `- ${t}`)]
+
   const lines = [
     `Please review code`,
     `Pull-requests : ${prNumber}`,
     `Repositories: ${repoName}`,
     `Link: ${body.prLink}`,
-    `Ticket: ${ticket}`,
+    ...ticketLines,
     senderLine,
   ]
 
@@ -172,7 +195,7 @@ app.post('/notify/review-pr', async (c) => {
         error: result.error,
         schema: {
           prLink:      'string (required)',
-          ticketLink:  'string (required)',
+          ticketLink:  'string | string[] (required, min 1) — full URL or ticket key; a string may be comma-separated, e.g. "EC-1,EC-2"',
           spaceId:     'string (required)',
           sender:      'Mention (required)',
           reviewers:   'Mention[] (required, min 1) — Mention: { name: string, userId?: string }',

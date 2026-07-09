@@ -73,7 +73,7 @@ Content-Type: application/json
 ```json
 {
   "prLink": "https://github.com/org/ecommerce-web/pull/999",
-  "ticketLink": "https://jira.example.com/browse/EC-999",
+  "ticketLink": "VECOM-001,VECOM-002",
   "reviewers": [
     { "name": "dev1", "userId": "users/111111111" },
     { "name": "dev2", "userId": "users/222222222" },
@@ -84,6 +84,17 @@ Content-Type: application/json
 ```
 
 > `userId` เป็น optional ต่อ mention — ถ้าใส่จะ ping จริง, ถ้าไม่ใส่จะแสดงเป็น `@name` plain text
+
+> `ticketLink` รับได้ 3 แบบ:
+>
+> | รูปแบบ                | ตัวอย่าง                              |
+> | --------------------- | ------------------------------------- |
+> | ticket เดียว          | `"VECOM-001"`                         |
+> | หลาย ticket คั่นด้วย `,` | `"VECOM-001,VECOM-002"`               |
+> | array                 | `["VECOM-001", "VECOM-002"]`          |
+>
+> เว้นวรรครอบ `,` ได้ (`"VECOM-001, VECOM-002"`) และแต่ละ ticket ถ้าไม่ได้ขึ้นต้นด้วย `https`
+> จะถูกเติม prefix `https://trueomx.atlassian.net/browse/` ให้อัตโนมัติ — ผสม key กับ URL เต็มในชุดเดียวกันได้
 
 **Response 200**
 
@@ -100,15 +111,34 @@ Content-Type: application/json
 
 ## Message ที่ส่งไป Google Chat
 
+Ticket เดียว:
+
 ```
 Please review code
 Pull-requests : 4008
 Repositories: true-ecommerce-store-web
 Link: https://github.com/org/true-ecommerce-store-web/pull/4008
 Ticket: https://jira.example.com/browse/EC-4008
+By: <users/111111111>
 
-<users/111111111> <users/222222222> @dev3
-cc. <users/999999999>
+<users/222222222> @dev3
+cc: <users/999999999>
+```
+
+หลาย ticket (`"ticketLink": "VECOM-001,VECOM-002"`):
+
+```
+Please review code
+Pull-requests : 4008
+Repositories: true-ecommerce-store-web
+Link: https://github.com/org/true-ecommerce-store-web/pull/4008
+Tickets:
+- https://trueomx.atlassian.net/browse/VECOM-001
+- https://trueomx.atlassian.net/browse/VECOM-002
+By: <users/111111111>
+
+<users/222222222> @dev3
+cc: <users/999999999>
 ```
 
 ---
